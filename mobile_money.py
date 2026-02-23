@@ -1,91 +1,166 @@
-import streamlit as st
-import pandas as pd
+import json
 from datetime import datetime
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.spinner import Spinner
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.popup import Popup
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Gestion Mobile Money", layout="centered")
+DATA_FILE = "data.json"
+ADMIN_PIN = "0000"  # 🔐 Change ici
 
-# --- SYSTÈME DE SÉCURITÉ SIMPLE ---
-def check_password():
-    """Retourne True si l'utilisateur a saisi le bon mot de passe."""
-    def password_entered():
-        if st.session_state["password"] == "1234": # 🚩 CHANGEZ VOTRE CODE ICI
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Ne pas garder le mot de passe en mémoire
+def load_data():
+    try:
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {
+            "operateurs": {
+                "Airtel": {
+                    "CDF": {"cash": 500000, "virtuel": 1000000},
+                    "USD": {"cash": 1000, "virtuel": 2000}
+                }
+            },
+            "historique": []
+        }
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
+
+class MainApp(App):
+
+    def build(self):
+        self.data = load_data()
+        self.layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        self.operateur_spinner = Spinner(
+            text="Choisir opérateur",
+            values=list(self.data["operateurs"].keys())
+        )
+
+        self.devise_spinner = Spinner(
+            text="CDF",
+            values=["CDF", "USD"]
+        )
+
+        self.type_spinner = Spinner(
+            text="Type",
+            values=["Depot", "Retrait"]
+        )
+
+        self.montant_input = TextInput(hint_text="Montant", multiline=False)
+
+        btn_valider = Button(text="Valider Transaction")
+        btn_valider.bind(on_press=self.transaction)
+
+        btn_admin = Button(text="Mode Admin")
+        btn_admin.bind(on_press=self.admin_login)
+
+        self.message = Label(text="")
+
+        self.layout.add_widget(self.operateur_spinner)
+        self.layout.add_widget(self.devise_spinner)
+        self.layout.add_widget(self.type_spinner)
+        self.layout.add_widget(self.montant_input)
+        self.layout.add_widget(btn_valider)
+        self.layout.add_widget(btn_admin)
+        self.layout.add_widget(self.message)
+
+        return self.layout
+
+    def transaction(self, instance):
+        op = self.operateur_spinner.text
+        devise = self.devise_spinner.text
+        type_op = self.type_spinner.text
+
+        try:
+            montant = float(self.montant_input.text)
+        except:
+            self.message.text = "Montant invalide"
+            return
+
+        operateur = self.data["operateurs"][op][devise]
+
+        if type_op == "Retrait" and operateur["cash"] < montant:
+            self.message.text = "Solde insuffisant ❌"
+            return
+
+        if type_op == "Depot":
+            operateur["cash"] += montant
+            operateur["virtuel"] -= montant
         else:
-            st.session_state["password_correct"] = False
+            operateur["cash"] -= montant
+            operateur["virtuel"] += montant
 
-    if "password_correct" not in st.session_state:
-        # Affichage de l'écran de connexion
-        st.title("🔐 Accès Sécurisé")
-        st.text_input("Entrez votre code PIN :", type="password", on_change=password_entered, key="password")
-        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-            st.error("❌ Code incorrect. Veuillez réessayer.")
-        return False
-    return True
+        self.data["historique"].append({
+            "date": str(datetime.now()),
+            "operateur": op,
+            "type": type_op,
+            "montant": montant,
+            "devise": devise
+        })
 
-# Si le mot de passe est correct, on affiche l'application
-if check_password():
+        save_data(self.data)
+        self.message.text = "Transaction réussie ✅"
 
-    # --- INITIALISATION DES DONNÉES ---
-    if 'solde_cash' not in st.session_state:
-        st.session_state.solde_cash = 500000 
-    if 'solde_virtuel' not in st.session_state:
-        st.session_state.solde_virtuel = 1000000
-    if 'historique' not in st.session_state:
-        st.session_state.historique = pd.DataFrame(columns=["Heure", "Type", "Montant", "Client", "Commission"])
+    def admin_login(self, instance):
+        content = BoxLayout(orientation="vertical")
+        pin_input = TextInput(password=True, hint_text="PIN Admin")
+        btn = Button(text="Entrer")
 
-    # --- INTERFACE PRINCIPALE ---
-    st.title("📲 Ma Caisse Mobile Money")
-    
-    # Affichage des soldes avec un design épuré
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("💰 Cash en Caisse", f"{st.session_state.solde_cash:,} FC")
-    with col2:
-        st.metric("📱 Solde Virtuel", f"{st.session_state.solde_virtuel:,} FC")
+        content.add_widget(pin_input)
+        content.add_widget(btn)
 
-    st.markdown("---")
+        popup = Popup(title="Admin Login", content=content, size_hint=(0.8, 0.4))
 
-    # --- FORMULAIRE D'OPÉRATION ---
-    st.subheader("Nouvelle Transaction")
-    with st.form("transaction_form", clear_on_submit=True):
-        type_op = st.selectbox("Type d'opération", ["Dépôt Client", "Retrait Client", "Vente Crédit"])
-        montant = st.number_input("Montant (FC)", min_value=0, step=500)
-        num_client = st.text_input("Numéro du client (Optionnel)")
-        
-        # Calcul automatique de commission (Exemple simplifié basé sur votre Excel)
-        # On pourrait affiner selon vos grilles exactes
-        comm_estimee = montant * 0.01 if type_op == "Retrait Client" else 0
-        
-        submit = st.form_submit_button("✅ Enregistrer et Valider")
+        def check_pin(instance):
+            if pin_input.text == ADMIN_PIN:
+                popup.dismiss()
+                self.admin_panel()
+            else:
+                pin_input.text = ""
 
-        if submit:
-            heure_actuelle = datetime.now().strftime("%H:%M")
-            
-            if type_op == "Dépôt Client":
-                st.session_state.solde_cash += montant
-                st.session_state.solde_virtuel -= montant
-            elif type_op == "Retrait Client":
-                st.session_state.solde_cash -= montant
-                st.session_state.solde_virtuel += montant
-            
-            # Mise à jour de l'historique
-            nouvelle_ligne = {
-                "Heure": heure_actuelle, 
-                "Type": type_op, 
-                "Montant": montant, 
-                "Client": num_client, 
-                "Commission": comm_estimee
-            }
-            st.session_state.historique = pd.concat([pd.DataFrame([nouvelle_ligne]), st.session_state.historique], ignore_index=True)
-            st.success(f"Opération réussie ! Nouveau solde cash : {st.session_state.solde_cash:,} FC")
+        btn.bind(on_press=check_pin)
+        popup.open()
 
-    # --- TABLEAU DES OPÉRATIONS ---
-    st.subheader("📜 Journal du jour")
-    st.dataframe(st.session_state.historique, use_container_width=True)
+    def admin_panel(self):
+        content = BoxLayout(orientation="vertical")
 
-    # Bouton de déconnexion
-    if st.sidebar.button("Se déconnecter"):
-        st.session_state["password_correct"] = False
-        st.rerun()
+        new_op_input = TextInput(hint_text="Nom nouvel opérateur")
+        btn_add = Button(text="Ajouter")
+        btn_delete = Button(text="Supprimer opérateur actuel")
+
+        content.add_widget(new_op_input)
+        content.add_widget(btn_add)
+        content.add_widget(btn_delete)
+
+        popup = Popup(title="Admin Panel", content=content, size_hint=(0.9, 0.6))
+
+        def add_op(instance):
+            nom = new_op_input.text
+            if nom:
+                self.data["operateurs"][nom] = {
+                    "CDF": {"cash": 0, "virtuel": 0},
+                    "USD": {"cash": 0, "virtuel": 0}
+                }
+                save_data(self.data)
+                self.operateur_spinner.values = list(self.data["operateurs"].keys())
+                new_op_input.text = ""
+
+        def delete_op(instance):
+            op = self.operateur_spinner.text
+            if op in self.data["operateurs"]:
+                del self.data["operateurs"][op]
+                save_data(self.data)
+                self.operateur_spinner.values = list(self.data["operateurs"].keys())
+
+        btn_add.bind(on_press=add_op)
+        btn_delete.bind(on_press=delete_op)
+
+        popup.open()
+
+if __name__ == "__main__":
+    MainApp().run()
