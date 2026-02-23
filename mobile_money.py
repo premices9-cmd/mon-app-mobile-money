@@ -1,166 +1,268 @@
-import json
-from datetime import datetime
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.spinner import Spinner
-from kivy.uix.label import Label
 from kivy.uix.button import Button
+from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
 
-DATA_FILE = "data.json"
-ADMIN_PIN = "0000"  # 🔐 Change ici
 
-def load_data():
-    try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {
-            "operateurs": {
-                "Airtel": {
-                    "CDF": {"cash": 500000, "virtuel": 1000000},
-                    "USD": {"cash": 1000, "virtuel": 2000}
-                }
-            },
-            "historique": []
-        }
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
-
-class MainApp(App):
+class GestionCash(App):
 
     def build(self):
-        self.data = load_data()
-        self.layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
 
-        self.operateur_spinner = Spinner(
-            text="Choisir opérateur",
-            values=list(self.data["operateurs"].keys())
-        )
+        self.solde = 0
+        self.monnaie = "USD"
+        self.taux = 2500
 
-        self.devise_spinner = Spinner(
-            text="CDF",
-            values=["CDF", "USD"]
-        )
+        self.mot_de_passe_admin = "1234"
+        self.admin_connecte = False
+        self.historique = []
 
-        self.type_spinner = Spinner(
-            text="Type",
-            values=["Depot", "Retrait"]
-        )
+        layout = BoxLayout(orientation="vertical", spacing=10, padding=10)
 
-        self.montant_input = TextInput(hint_text="Montant", multiline=False)
+        self.label_solde = Label(text=self.afficher_solde(), font_size=20)
+        layout.add_widget(self.label_solde)
 
-        btn_valider = Button(text="Valider Transaction")
-        btn_valider.bind(on_press=self.transaction)
+        boutons = [
+            ("Dépôt", self.depot),
+            ("Retrait", self.retrait),
+            ("Vente Unité", self.vente_unite),
+            ("Echange USD/CDF", self.echange),
+            ("Changer Taux", self.changer_taux),
+            ("Voir Historique", self.voir_historique),
+            ("Connexion Admin", self.login_admin),
+        ]
 
-        btn_admin = Button(text="Mode Admin")
-        btn_admin.bind(on_press=self.admin_login)
+        for texte, fonction in boutons:
+            btn = Button(text=texte, size_hint=(1, None), height=50)
+            btn.bind(on_release=fonction)
+            layout.add_widget(btn)
 
-        self.message = Label(text="")
+        return layout
 
-        self.layout.add_widget(self.operateur_spinner)
-        self.layout.add_widget(self.devise_spinner)
-        self.layout.add_widget(self.type_spinner)
-        self.layout.add_widget(self.montant_input)
-        self.layout.add_widget(btn_valider)
-        self.layout.add_widget(btn_admin)
-        self.layout.add_widget(self.message)
+    # --------------------
+    # AFFICHAGE SOLDE
+    # --------------------
+    def afficher_solde(self):
+        return f"Solde: {self.solde} {self.monnaie}"
 
-        return self.layout
+    def mettre_a_jour(self):
+        self.label_solde.text = self.afficher_solde()
 
-    def transaction(self, instance):
-        op = self.operateur_spinner.text
-        devise = self.devise_spinner.text
-        type_op = self.type_spinner.text
+    # --------------------
+    # POPUP SIMPLE
+    # --------------------
+    def popup(self, message):
+        box = BoxLayout(orientation="vertical", padding=10)
+        box.add_widget(Label(text=message))
+        btn = Button(text="Fermer", size_hint=(1, 0.3))
+        box.add_widget(btn)
+        pop = Popup(title="Message", content=box, size_hint=(0.8, 0.4))
+        btn.bind(on_release=pop.dismiss)
+        pop.open()
 
-        try:
-            montant = float(self.montant_input.text)
-        except:
-            self.message.text = "Montant invalide"
-            return
+    # --------------------
+    # DEPOT
+    # --------------------
+    def depot(self, instance):
 
-        operateur = self.data["operateurs"][op][devise]
+        layout = BoxLayout(orientation="vertical", spacing=10)
 
-        if type_op == "Retrait" and operateur["cash"] < montant:
-            self.message.text = "Solde insuffisant ❌"
-            return
+        input_montant = TextInput(hint_text="Montant", multiline=False)
 
-        if type_op == "Depot":
-            operateur["cash"] += montant
-            operateur["virtuel"] -= montant
-        else:
-            operateur["cash"] -= montant
-            operateur["virtuel"] += montant
+        btn = Button(text="Valider")
 
-        self.data["historique"].append({
-            "date": str(datetime.now()),
-            "operateur": op,
-            "type": type_op,
-            "montant": montant,
-            "devise": devise
-        })
+        layout.add_widget(input_montant)
+        layout.add_widget(btn)
 
-        save_data(self.data)
-        self.message.text = "Transaction réussie ✅"
+        popup = Popup(title="Dépôt", content=layout, size_hint=(0.8, 0.5))
 
-    def admin_login(self, instance):
-        content = BoxLayout(orientation="vertical")
-        pin_input = TextInput(password=True, hint_text="PIN Admin")
-        btn = Button(text="Entrer")
-
-        content.add_widget(pin_input)
-        content.add_widget(btn)
-
-        popup = Popup(title="Admin Login", content=content, size_hint=(0.8, 0.4))
-
-        def check_pin(instance):
-            if pin_input.text == ADMIN_PIN:
+        def valider(x):
+            try:
+                m = float(input_montant.text)
+                self.solde += m
+                self.historique.append(f"Dépôt {m} {self.monnaie}")
+                self.mettre_a_jour()
                 popup.dismiss()
-                self.admin_panel()
+            except:
+                self.popup("Montant invalide")
+
+        btn.bind(on_release=valider)
+        popup.open()
+
+    # --------------------
+    # RETRAIT
+    # --------------------
+    def retrait(self, instance):
+
+        layout = BoxLayout(orientation="vertical", spacing=10)
+
+        input_montant = TextInput(hint_text="Montant", multiline=False)
+        btn = Button(text="Valider")
+
+        layout.add_widget(input_montant)
+        layout.add_widget(btn)
+
+        popup = Popup(title="Retrait", content=layout, size_hint=(0.8, 0.5))
+
+        def valider(x):
+            try:
+                m = float(input_montant.text)
+                if m <= self.solde:
+                    self.solde -= m
+                    self.historique.append(f"Retrait {m} {self.monnaie}")
+                    self.mettre_a_jour()
+                    popup.dismiss()
+                else:
+                    self.popup("Solde insuffisant")
+            except:
+                self.popup("Montant invalide")
+
+        btn.bind(on_release=valider)
+        popup.open()
+
+    # --------------------
+    # VENTE UNITE
+    # --------------------
+    def vente_unite(self, instance):
+
+        layout = BoxLayout(orientation="vertical", spacing=10)
+
+        input_montant = TextInput(hint_text="Montant vente", multiline=False)
+        btn = Button(text="Valider")
+
+        layout.add_widget(input_montant)
+        layout.add_widget(btn)
+
+        popup = Popup(title="Vente Unité", content=layout, size_hint=(0.8, 0.5))
+
+        def valider(x):
+            try:
+                m = float(input_montant.text)
+                self.solde += m
+                self.historique.append(f"Vente unité {m}")
+                self.mettre_a_jour()
+                popup.dismiss()
+            except:
+                self.popup("Montant invalide")
+
+        btn.bind(on_release=valider)
+        popup.open()
+
+    # --------------------
+    # ECHANGE USD/CDF
+    # --------------------
+    def echange(self, instance):
+
+        layout = BoxLayout(orientation="vertical", spacing=10)
+
+        input_montant = TextInput(hint_text="Montant", multiline=False)
+        btn_usd = Button(text="USD -> CDF")
+        btn_cdf = Button(text="CDF -> USD")
+
+        layout.add_widget(input_montant)
+        layout.add_widget(btn_usd)
+        layout.add_widget(btn_cdf)
+
+        popup = Popup(title="Echange", content=layout, size_hint=(0.8, 0.6))
+
+        def usd_to_cdf(x):
+            try:
+                m = float(input_montant.text)
+                self.solde = m * self.taux
+                self.monnaie = "CDF"
+                self.historique.append(f"Echange USD->CDF {m}")
+                self.mettre_a_jour()
+                popup.dismiss()
+            except:
+                self.popup("Montant invalide")
+
+        def cdf_to_usd(x):
+            try:
+                m = float(input_montant.text)
+                self.solde = m / self.taux
+                self.monnaie = "USD"
+                self.historique.append(f"Echange CDF->USD {m}")
+                self.mettre_a_jour()
+                popup.dismiss()
+            except:
+                self.popup("Montant invalide")
+
+        btn_usd.bind(on_release=usd_to_cdf)
+        btn_cdf.bind(on_release=cdf_to_usd)
+
+        popup.open()
+
+    # --------------------
+    # CHANGER TAUX (ADMIN)
+    # --------------------
+    def changer_taux(self, instance):
+
+        if not self.admin_connecte:
+            self.popup("Accès refusé (Admin)")
+            return
+
+        layout = BoxLayout(orientation="vertical", spacing=10)
+        input_taux = TextInput(hint_text="Nouveau taux", multiline=False)
+        btn = Button(text="Valider")
+
+        layout.add_widget(input_taux)
+        layout.add_widget(btn)
+
+        popup = Popup(title="Changer Taux", content=layout, size_hint=(0.8, 0.5))
+
+        def valider(x):
+            try:
+                self.taux = float(input_taux.text)
+                self.historique.append(f"Taux changé: {self.taux}")
+                popup.dismiss()
+            except:
+                self.popup("Taux invalide")
+
+        btn.bind(on_release=valider)
+        popup.open()
+
+    # --------------------
+    # LOGIN ADMIN
+    # --------------------
+    def login_admin(self, instance):
+
+        layout = BoxLayout(orientation="vertical", spacing=10)
+        input_pass = TextInput(hint_text="Mot de passe", password=True, multiline=False)
+        btn = Button(text="Connexion")
+
+        layout.add_widget(input_pass)
+        layout.add_widget(btn)
+
+        popup = Popup(title="Admin", content=layout, size_hint=(0.8, 0.5))
+
+        def verifier(x):
+            if input_pass.text == self.mot_de_passe_admin:
+                self.admin_connecte = True
+                self.popup("Admin connecté")
+                popup.dismiss()
             else:
-                pin_input.text = ""
+                self.popup("Mot de passe incorrect")
 
-        btn.bind(on_press=check_pin)
+        btn.bind(on_release=verifier)
         popup.open()
 
-    def admin_panel(self):
-        content = BoxLayout(orientation="vertical")
+    # --------------------
+    # HISTORIQUE
+    # --------------------
+    def voir_historique(self, instance):
 
-        new_op_input = TextInput(hint_text="Nom nouvel opérateur")
-        btn_add = Button(text="Ajouter")
-        btn_delete = Button(text="Supprimer opérateur actuel")
+        texte = "\n".join(self.historique[-20:]) if self.historique else "Aucune opération"
 
-        content.add_widget(new_op_input)
-        content.add_widget(btn_add)
-        content.add_widget(btn_delete)
+        layout = BoxLayout(orientation="vertical", spacing=10)
+        layout.add_widget(Label(text=texte))
 
-        popup = Popup(title="Admin Panel", content=content, size_hint=(0.9, 0.6))
+        btn = Button(text="Fermer", size_hint=(1, 0.3))
+        layout.add_widget(btn)
 
-        def add_op(instance):
-            nom = new_op_input.text
-            if nom:
-                self.data["operateurs"][nom] = {
-                    "CDF": {"cash": 0, "virtuel": 0},
-                    "USD": {"cash": 0, "virtuel": 0}
-                }
-                save_data(self.data)
-                self.operateur_spinner.values = list(self.data["operateurs"].keys())
-                new_op_input.text = ""
-
-        def delete_op(instance):
-            op = self.operateur_spinner.text
-            if op in self.data["operateurs"]:
-                del self.data["operateurs"][op]
-                save_data(self.data)
-                self.operateur_spinner.values = list(self.data["operateurs"].keys())
-
-        btn_add.bind(on_press=add_op)
-        btn_delete.bind(on_press=delete_op)
-
+        popup = Popup(title="Historique", content=layout, size_hint=(0.9, 0.7))
+        btn.bind(on_release=popup.dismiss)
         popup.open()
 
-if __name__ == "__main__":
-    MainApp().run()
+
+GestionCash().run()
