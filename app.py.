@@ -5,55 +5,87 @@ from datetime import datetime
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Gestion Mobile Money", layout="centered")
 
-st.title("📲 Ma Caisse Mobile Money")
-st.markdown("---")
+# --- SYSTÈME DE SÉCURITÉ SIMPLE ---
+def check_password():
+    """Retourne True si l'utilisateur a saisi le bon mot de passe."""
+    def password_entered():
+        if st.session_state["password"] == "1234": # 🚩 CHANGEZ VOTRE CODE ICI
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Ne pas garder le mot de passe en mémoire
+        else:
+            st.session_state["password_correct"] = False
 
-# --- INITIALISATION DES DONNÉES (Simulation de votre Excel) ---
-if 'solde_cash' not in st.session_state:
-    st.session_state.solde_cash = 500000  # Exemple de départ
-if 'solde_virtuel' not in st.session_state:
-    st.session_state.solde_virtuel = 1000000
-if 'historique' not in st.session_state:
-    st.session_state.historique = pd.DataFrame(columns=["Heure", "Type", "Montant", "Client", "Frais"])
+    if "password_correct" not in st.session_state:
+        # Affichage de l'écran de connexion
+        st.title("🔐 Accès Sécurisé")
+        st.text_input("Entrez votre code PIN :", type="password", on_change=password_entered, key="password")
+        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+            st.error("❌ Code incorrect. Veuillez réessayer.")
+        return False
+    return True
 
-# --- INTERFACE DE SAISIE ---
-col1, col2 = st.columns(2)
+# Si le mot de passe est correct, on affiche l'application
+if check_password():
 
-with col1:
-    st.metric("💰 Cash en Caisse", f"{st.session_state.solde_cash:,} FC")
-with col2:
-    st.metric("📱 Solde Virtuel", f"{st.session_state.solde_virtuel:,} FC")
+    # --- INITIALISATION DES DONNÉES ---
+    if 'solde_cash' not in st.session_state:
+        st.session_state.solde_cash = 500000 
+    if 'solde_virtuel' not in st.session_state:
+        st.session_state.solde_virtuel = 1000000
+    if 'historique' not in st.session_state:
+        st.session_state.historique = pd.DataFrame(columns=["Heure", "Type", "Montant", "Client", "Commission"])
 
-st.subheader("Nouvelle Opération")
-with st.form("transaction_form", clear_on_submit=True):
-    type_op = st.selectbox("Type d'opération", ["Dépôt", "Retrait", "Vente Crédit"])
-    montant = st.number_input("Montant de la transaction", min_value=0)
-    num_client = st.text_input("Numéro du client")
+    # --- INTERFACE PRINCIPALE ---
+    st.title("📲 Ma Caisse Mobile Money")
     
-    submit = st.form_submit_button("Enregistrer l'opération")
+    # Affichage des soldes avec un design épuré
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("💰 Cash en Caisse", f"{st.session_state.solde_cash:,} FC")
+    with col2:
+        st.metric("📱 Solde Virtuel", f"{st.session_state.solde_virtuel:,} FC")
 
-    if submit:
-        # Logique de mise à jour des soldes
-        heure_actuelle = datetime.now().strftime("%H:%M")
-        frais = 0 # On pourrait automatiser selon vos règles Excel ici
+    st.markdown("---")
+
+    # --- FORMULAIRE D'OPÉRATION ---
+    st.subheader("Nouvelle Transaction")
+    with st.form("transaction_form", clear_on_submit=True):
+        type_op = st.selectbox("Type d'opération", ["Dépôt Client", "Retrait Client", "Vente Crédit"])
+        montant = st.number_input("Montant (FC)", min_value=0, step=500)
+        num_client = st.text_input("Numéro du client (Optionnel)")
         
-        if type_op == "Dépôt":
-            st.session_state.solde_cash += montant
-            st.session_state.solde_virtuel -= montant
-        elif type_op == "Retrait":
-            st.session_state.solde_cash -= montant
-            st.session_state.solde_virtuel += montant
+        # Calcul automatique de commission (Exemple simplifié basé sur votre Excel)
+        # On pourrait affiner selon vos grilles exactes
+        comm_estimee = montant * 0.01 if type_op == "Retrait Client" else 0
+        
+        submit = st.form_submit_button("✅ Enregistrer et Valider")
+
+        if submit:
+            heure_actuelle = datetime.now().strftime("%H:%M")
             
-        # Ajout à l'historique
-        nouvelle_ligne = {"Heure": heure_actuelle, "Type": type_op, "Montant": montant, "Client": num_client, "Frais": frais}
-        st.session_state.historique = pd.concat([pd.DataFrame([nouvelle_ligne]), st.session_state.historique], ignore_index=True)
-        st.success(f"Opération de {montant} enregistrée !")
+            if type_op == "Dépôt Client":
+                st.session_state.solde_cash += montant
+                st.session_state.solde_virtuel -= montant
+            elif type_op == "Retrait Client":
+                st.session_state.solde_cash -= montant
+                st.session_state.solde_virtuel += montant
+            
+            # Mise à jour de l'historique
+            nouvelle_ligne = {
+                "Heure": heure_actuelle, 
+                "Type": type_op, 
+                "Montant": montant, 
+                "Client": num_client, 
+                "Commission": comm_estimee
+            }
+            st.session_state.historique = pd.concat([pd.DataFrame([nouvelle_ligne]), st.session_state.historique], ignore_index=True)
+            st.success(f"Opération réussie ! Nouveau solde cash : {st.session_state.solde_cash:,} FC")
 
-# --- AFFICHAGE DES DERNIERS MOUVEMENTS ---
-st.subheader("Historique récent")
-st.table(st.session_state.historique.head(5))
+    # --- TABLEAU DES OPÉRATIONS ---
+    st.subheader("📜 Journal du jour")
+    st.dataframe(st.session_state.historique, use_container_width=True)
 
-# Bouton pour exporter (comme votre Excel)
-if st.button("Télécharger le rapport Excel"):
-    st.session_state.historique.to_csv("rapport_journalier.csv", index=False)
-    st.info("Fichier prêt pour l'archivage.")
+    # Bouton de déconnexion
+    if st.sidebar.button("Se déconnecter"):
+        st.session_state["password_correct"] = False
+        st.rerun()
