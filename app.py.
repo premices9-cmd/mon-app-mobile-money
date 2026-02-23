@@ -1,0 +1,59 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# --- CONFIGURATION DE LA PAGE ---
+st.set_page_config(page_title="Gestion Mobile Money", layout="centered")
+
+st.title("📲 Ma Caisse Mobile Money")
+st.markdown("---")
+
+# --- INITIALISATION DES DONNÉES (Simulation de votre Excel) ---
+if 'solde_cash' not in st.session_state:
+    st.session_state.solde_cash = 500000  # Exemple de départ
+if 'solde_virtuel' not in st.session_state:
+    st.session_state.solde_virtuel = 1000000
+if 'historique' not in st.session_state:
+    st.session_state.historique = pd.DataFrame(columns=["Heure", "Type", "Montant", "Client", "Frais"])
+
+# --- INTERFACE DE SAISIE ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.metric("💰 Cash en Caisse", f"{st.session_state.solde_cash:,} FC")
+with col2:
+    st.metric("📱 Solde Virtuel", f"{st.session_state.solde_virtuel:,} FC")
+
+st.subheader("Nouvelle Opération")
+with st.form("transaction_form", clear_on_submit=True):
+    type_op = st.selectbox("Type d'opération", ["Dépôt", "Retrait", "Vente Crédit"])
+    montant = st.number_input("Montant de la transaction", min_value=0)
+    num_client = st.text_input("Numéro du client")
+    
+    submit = st.form_submit_button("Enregistrer l'opération")
+
+    if submit:
+        # Logique de mise à jour des soldes
+        heure_actuelle = datetime.now().strftime("%H:%M")
+        frais = 0 # On pourrait automatiser selon vos règles Excel ici
+        
+        if type_op == "Dépôt":
+            st.session_state.solde_cash += montant
+            st.session_state.solde_virtuel -= montant
+        elif type_op == "Retrait":
+            st.session_state.solde_cash -= montant
+            st.session_state.solde_virtuel += montant
+            
+        # Ajout à l'historique
+        nouvelle_ligne = {"Heure": heure_actuelle, "Type": type_op, "Montant": montant, "Client": num_client, "Frais": frais}
+        st.session_state.historique = pd.concat([pd.DataFrame([nouvelle_ligne]), st.session_state.historique], ignore_index=True)
+        st.success(f"Opération de {montant} enregistrée !")
+
+# --- AFFICHAGE DES DERNIERS MOUVEMENTS ---
+st.subheader("Historique récent")
+st.table(st.session_state.historique.head(5))
+
+# Bouton pour exporter (comme votre Excel)
+if st.button("Télécharger le rapport Excel"):
+    st.session_state.historique.to_csv("rapport_journalier.csv", index=False)
+    st.info("Fichier prêt pour l'archivage.")
